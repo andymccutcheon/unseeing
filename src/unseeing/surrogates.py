@@ -100,7 +100,7 @@ def generate_surrogate(entity_type: str, value: str, index: int) -> str:
     if kind in {EntityType.GITHUB.value, "GITHUB"}:
         return f"https://github.com/example-user-{index}"
     if kind in {EntityType.ORGANIZATION.value, "ORGANIZATION", "ORG"}:
-        return f"Example { _pick(value, kind, _LAST, index)} Group"
+        return f"Example {_pick(value, kind, _LAST, index)} Group"
     if kind in {EntityType.LOCATION.value, "LOCATION"}:
         return _pick(value, kind, _CITIES, index)
     if kind in {EntityType.NATIONAL_ID.value, "NATIONAL_ID"}:

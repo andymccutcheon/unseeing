@@ -57,17 +57,13 @@ def _card_iin_ok(digits: str) -> bool:
         return True
     if digits.startswith(("6011", "65", "64")) and length == 16:
         return True
-    if 3528 <= prefix4 <= 3589 and length == 16:
-        return True
-    return False
+    return 3528 <= prefix4 <= 3589 and length == 16
 
 
 def _ssn_parts_ok(area: str, group: str, serial: str) -> bool:
     if area == "000" or area == "666" or area.startswith("9"):
         return False
-    if group == "00" or serial == "0000":
-        return False
-    return True
+    return group != "00" and serial != "0000"
 
 
 def _trim_url(value: str) -> str:
@@ -101,23 +97,7 @@ _URL = re.compile(r"https?://[^\s<>\"']+", re.I)
 _WWW = re.compile(r"\bwww\.[A-Za-z0-9.-]+\.[A-Za-z]{2,24}[^\s<>\"']*", re.I)
 
 _IPV4 = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d{1,2})\.){3}(?:25[0-5]|2[0-4]\d|1?\d{1,2})\b")
-_IPV6_CANDIDATE = re.compile(
-    r"""
-    (?:
-        (?:[0-9A-Fa-f]{1,4}:){7}[0-9A-Fa-f]{1,4}
-        | (?:[0-9A-Fa-f]{1,4}:){1,7}:
-        | (?:[0-9A-Fa-f]{1,4}:){1,6}:[0-9A-Fa-f]{1,4}
-        | (?:[0-9A-Fa-f]{1,4}:){1,5}(?::[0-9A-Fa-f]{1,4}){1,2}
-        | (?:[0-9A-Fa-f]{1,4}:){1,4}(?::[0-9A-Fa-f]{1,4}){1,3}
-        | (?:[0-9A-Fa-f]{1,4}:){1,3}(?::[0-9A-Fa-f]{1,4}){1,4}
-        | (?:[0-9A-Fa-f]{1,4}:){1,2}(?::[0-9A-Fa-f]{1,4}){1,5}
-        | [0-9A-Fa-f]{1,4}:(?::[0-9A-Fa-f]{1,4}){1,6}
-        | :(?::[0-9A-Fa-f]{1,4}){1,7}
-        | ::1
-    )
-    """,
-    re.VERBOSE,
-)
+_IPV6_LOOSE = re.compile(r"(?:[0-9A-Fa-f]{1,4}:){1,7}[0-9A-Fa-f:]{0,20}")
 
 _CC_GROUPED = re.compile(r"\b(?:\d{4}[\s-]){3}\d{4}\b")
 _CC_AMEX = re.compile(r"\b\d{4}[\s-]\d{6}[\s-]\d{5}\b")
@@ -130,7 +110,8 @@ _NINO = re.compile(
 )
 _SIN = re.compile(r"\b\d{3}[-\s]\d{3}[-\s]\d{3}\b")
 
-_IBAN = re.compile(r"\b[A-Z]{2}\d{2}(?:[ ]?[A-Z0-9]){11,30}\b")
+_IBAN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
+_IBAN_SPACED = re.compile(r"\b[A-Z]{2}\d{2}(?:\s+[A-Z0-9]{4}){2,7}\b")
 
 _STREET = re.compile(
     r"""
@@ -302,13 +283,24 @@ class RegexLayer:
             except ipaddress.AddressValueError:
                 continue
             yield _span(EntityType.IP_ADDRESS, match.start(), match.end(), text)
-        for match in _IPV6_CANDIDATE.finditer(text):
-            candidate = match.group(0)
-            try:
-                ipaddress.IPv6Address(candidate)
-            except ipaddress.AddressValueError:
-                continue
-            yield _span(EntityType.IP_ADDRESS, match.start(), match.end(), text)
+        for match in _IPV6_LOOSE.finditer(text):
+            raw = match.group(0)
+            for end in range(len(raw), 1, -1):
+                piece = raw[:end]
+                if piece.endswith(":") and not piece.endswith("::"):
+                    continue
+                try:
+                    ipaddress.IPv6Address(piece)
+                except ipaddress.AddressValueError:
+                    continue
+                yield Detection(
+                    EntityType.IP_ADDRESS,
+                    match.start(),
+                    match.start() + end,
+                    piece,
+                    source="regex",
+                )
+                break
 
     def _cards(self, text: str) -> Iterable[Detection]:
         seen: set[tuple[int, int]] = set()
@@ -340,16 +332,17 @@ class RegexLayer:
             yield _span(EntityType.NATIONAL_ID, match.start(), match.end(), text)
 
     def _ibans(self, text: str) -> Iterable[Detection]:
-        for match in _IBAN.finditer(text):
-            raw = match.group(0).rstrip()
-            if iban_ok(raw):
-                yield Detection(
-                    EntityType.IBAN,
-                    match.start(),
-                    match.start() + len(raw),
-                    raw,
-                    source="regex",
-                )
+        for pattern in (_IBAN, _IBAN_SPACED):
+            for match in pattern.finditer(text):
+                raw = match.group(0).rstrip()
+                if iban_ok(raw):
+                    yield Detection(
+                        EntityType.IBAN,
+                        match.start(),
+                        match.start() + len(raw),
+                        raw,
+                        source="regex",
+                    )
 
     def _addresses(self, text: str) -> Iterable[Detection]:
         for pattern in (_STREET, _PO_BOX, _CITY_STATE_ZIP):

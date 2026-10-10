@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from typing import Any, TypeVar
+from typing import TypeVar
 
 T = TypeVar("T")
 
@@ -19,7 +19,6 @@ SKIP_KEYS = frozenset(
         "created",
         "system_fingerprint",
         "event",
-        "name",  # tool / function name
         "tool_call_id",
         "call_id",
         "status",
@@ -37,9 +36,7 @@ def map_strings(obj: T, fn: Callable[[str], str], *, skip_keys: frozenset[str] =
         return tuple(map_strings(item, fn, skip_keys=skip_keys) for item in obj)  # type: ignore[return-value]
     if isinstance(obj, dict):
         return {
-            key: value
-            if key in skip_keys
-            else map_strings(value, fn, skip_keys=skip_keys)
+            key: value if key in skip_keys else map_strings(value, fn, skip_keys=skip_keys)
             for key, value in obj.items()
         }  # type: ignore[return-value]
     dump = getattr(obj, "model_dump", None)

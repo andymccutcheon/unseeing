@@ -9,8 +9,8 @@ from unseeing.audit import AuditReport
 from unseeing.detectors.base import Detector, resolve_overlaps
 from unseeing.detectors.custom import CustomDetector, deny_detections
 from unseeing.detectors.regex import RegexLayer
-from unseeing.resume import detect_resume, person_aliases
 from unseeing.restore import AsyncStreamAdapter, StreamAdapter, StreamRestorer
+from unseeing.resume import detect_resume, person_aliases
 from unseeing.types import CustomPattern, DenyItem, Detection, EntityType
 from unseeing.vault import Vault
 from unseeing.walk import map_strings
@@ -73,6 +73,7 @@ class Scrubber:
         if self.resume:
             found.extend(detect_resume(text, scrub_orgs=self.scrub_orgs))
         found.extend(deny_detections(text, self.deny))
+        found.extend(self.vault.known_detections(text))
         found = [item for item in found if not self._is_allowed(item.value)]
         return resolve_overlaps(found)
 

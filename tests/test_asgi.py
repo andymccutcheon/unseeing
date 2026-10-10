@@ -19,7 +19,12 @@ async def _echo_app(scope, receive, send):
     payload = json.loads(bytes(body).decode("utf-8"))
     reply = {
         "choices": [
-            {"message": {"role": "assistant", "content": f"echo {payload['messages'][0]['content']}"}}
+            {
+                "message": {
+                    "role": "assistant",
+                    "content": f"echo {payload['messages'][0]['content']}",
+                }
+            }
         ]
     }
     raw = json.dumps(reply).encode("utf-8")

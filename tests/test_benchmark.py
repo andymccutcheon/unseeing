@@ -6,12 +6,15 @@ from unseeing.vault import normalize_value
 
 
 def _match(detection_value: str, expected_value: str, entity_type: str) -> bool:
-    return normalize_value(entity_type, detection_value) == normalize_value(
-        entity_type, expected_value
-    ) or expected_value.casefold() in detection_value.casefold()
+    return (
+        normalize_value(entity_type, detection_value)
+        == normalize_value(entity_type, expected_value)
+        or expected_value.casefold() in detection_value.casefold()
+    )
 
 
 def score_documents(documents: list[dict]) -> dict[str, object]:
+    """Score unique (type, normalized value) pairs, not repeated spans."""
     per_type: dict[str, dict[str, int]] = {}
     total = {"tp": 0, "fp": 0, "fn": 0}
 
@@ -22,33 +25,31 @@ def score_documents(documents: list[dict]) -> dict[str, object]:
         resume = doc.get("mode", "resume") == "resume"
         scrubber = Scrubber(resume=resume)
         detections = scrubber.detect(doc["text"])
-        used: set[int] = set()
-        for entity in doc["entities"]:
-            entity_type = entity["type"]
-            expected = entity["value"]
+        gold = {(entity["type"], entity["value"]) for entity in doc["entities"]}
+        pred = {(detection.type_name, detection.value) for detection in detections}
+        used_pred: set[tuple[str, str]] = set()
+        for entity_type, expected in gold:
             hit = None
-            for index, detection in enumerate(detections):
-                if index in used:
+            for detected_type, detected_value in pred:
+                if (detected_type, detected_value) in used_pred:
                     continue
-                if detection.type_name != entity_type and not _compatible(
-                    detection.type_name, entity_type
-                ):
+                if detected_type != entity_type and not _compatible(detected_type, entity_type):
                     continue
-                if _match(detection.value, expected, entity_type):
-                    hit = index
+                if _match(detected_value, expected, entity_type):
+                    hit = (detected_type, detected_value)
                     break
             target = bucket(entity_type)
             if hit is None:
                 target["fn"] += 1
                 total["fn"] += 1
             else:
-                used.add(hit)
+                used_pred.add(hit)
                 target["tp"] += 1
                 total["tp"] += 1
-        for index, detection in enumerate(detections):
-            if index in used:
+        for detected_type, detected_value in pred:
+            if (detected_type, detected_value) in used_pred:
                 continue
-            bucket(detection.type_name)["fp"] += 1
+            bucket(detected_type)["fp"] += 1
             total["fp"] += 1
 
     def rates(row: dict[str, int]) -> dict[str, float]:

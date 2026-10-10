@@ -12,7 +12,7 @@ from unseeing.crypto import decrypt, encrypt
 from unseeing.errors import VaultError
 from unseeing.restore import Mapping, StreamRestorer, restore_text
 from unseeing.surrogates import generate_surrogate
-from unseeing.types import placeholder_label
+from unseeing.types import Detection, placeholder_label
 
 _PLACEHOLDER_IN_TEXT = re.compile(r"[<\(\[]([A-Za-z][A-Za-z0-9]*_\d+)[>\)\]]")
 
@@ -46,6 +46,7 @@ class Vault:
         self._token_to_type: dict[str, str] = {}
         self._counts: dict[str, int] = {}
         self._reserved: set[str] = set()
+        self._surfaces: set[tuple[str, str]] = set()
 
     def __len__(self) -> int:
         return len(self._token_to_original)
@@ -71,13 +72,19 @@ class Vault:
         key = (label, normalize_value(entity_type, value))
         existing = self._norm_to_token.get(key)
         if existing is not None:
+            self._remember_surface(value, entity_type)
             return self._token_to_display[existing]
         token = self._mint(label)
         self._norm_to_token[key] = token
         self._token_to_original[token] = value
         self._token_to_type[token] = entity_type
-        display = generate_surrogate(entity_type, value, self._counts[label]) if self.use_surrogates else f"<{token}>"
+        display = (
+            generate_surrogate(entity_type, value, self._counts[label])
+            if self.use_surrogates
+            else f"<{token}>"
+        )
         self._token_to_display[token] = display
+        self._remember_surface(value, entity_type)
         return display
 
     def alias(self, entity_type: str, value: str, canonical: str) -> None:
@@ -90,6 +97,31 @@ class Vault:
             token = self._norm_to_token[canon_key]
         alias_key = (label, normalize_value(entity_type, value))
         self._norm_to_token[alias_key] = token
+        self._remember_surface(value, entity_type)
+
+    def _remember_surface(self, value: str, entity_type: str) -> None:
+        surface = value.strip()
+        if len(surface) >= 2:
+            self._surfaces.add((surface, entity_type))
+
+    def known_detections(self, text: str) -> list[Detection]:
+        """Find already-mapped surface forms (full names, aliases, emails)."""
+        found: list[Detection] = []
+        for surface, entity_type in sorted(
+            self._surfaces, key=lambda item: len(item[0]), reverse=True
+        ):
+            pattern = re.compile(rf"(?<!\w){re.escape(surface)}(?!\w)", re.I)
+            for match in pattern.finditer(text):
+                found.append(
+                    Detection(
+                        entity_type,
+                        match.start(),
+                        match.end(),
+                        match.group(0),
+                        source="vault",
+                    )
+                )
+        return found
 
     def lookup_display(self, entity_type: str, value: str) -> str | None:
         label = placeholder_label(entity_type)
@@ -134,6 +166,10 @@ class Vault:
             "entries": entries,
             "reserved": sorted(self._reserved),
             "counts": self._counts,
+            "surfaces": [
+                {"value": value, "entity_type": entity_type}
+                for value, entity_type in self._surfaces
+            ],
         }
 
     @classmethod
@@ -159,6 +195,14 @@ class Vault:
                 vault._token_to_type[token] = entity_type
                 label = placeholder_label(entity_type)
                 vault._norm_to_token[(label, normalize_value(entity_type, original))] = token
+                vault._remember_surface(original, entity_type)
+        surfaces = payload.get("surfaces") or []
+        if isinstance(surfaces, list):
+            for raw in surfaces:
+                if isinstance(raw, dict) and raw.get("value"):
+                    vault._remember_surface(
+                        str(raw["value"]), str(raw.get("entity_type") or "PERSON")
+                    )
         return vault
 
     def dumps(self, *, key: str | None = None) -> bytes:

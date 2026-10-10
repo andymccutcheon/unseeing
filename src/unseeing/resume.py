@@ -31,6 +31,13 @@ _NAME_LABELED = re.compile(
     re.I,
 )
 
+_NAME_LEAD = re.compile(
+    r"""^(?:(?:Dr|Mr|Mrs|Ms|Mx|Prof)\.?\s+)?
+    ([A-Z][A-Za-z'’-]+(?:\s+[A-Z]\.?)?(?:\s+[A-Z][A-Za-z'’-]+){1,3})
+    """,
+    re.VERBOSE,
+)
+
 _TITLE_WORDS = re.compile(
     r"\b(engineer|manager|developer|designer|analyst|director|consultant|"
     r"specialist|intern|lead|architect|scientist|officer|president|"
@@ -108,7 +115,9 @@ def detect_resume(text: str, *, scrub_orgs: bool = False) -> list[Detection]:
             name = labeled.group(1).strip()
             rel = line.find(name)
             found.append(
-                Detection(EntityType.PERSON, start + rel, start + rel + len(name), name, source="resume")
+                Detection(
+                    EntityType.PERSON, start + rel, start + rel + len(name), name, source="resume"
+                )
             )
             break
         if _is_name_line(line):
@@ -116,18 +125,39 @@ def detect_resume(text: str, *, scrub_orgs: bool = False) -> list[Detection]:
             raw = text[start:end]
             found.append(Detection(EntityType.PERSON, start, end, raw, source="resume"))
             break
+        lead = _NAME_LEAD.match(line)
+        if lead:
+            name = lead.group(1)
+            if name.casefold() not in _NOT_NAMES and not _TITLE_WORDS.search(name):
+                rel = lead.start(1)
+                found.append(
+                    Detection(
+                        EntityType.PERSON,
+                        start + rel,
+                        start + rel + len(name),
+                        name,
+                        source="resume",
+                    )
+                )
+                break
 
     if not scrub_orgs:
         return found
 
     section = ""
-    for start, end, line in lines:
+    for start, _end, line in lines:
         if line and _SECTION.match(line):
             section = line.casefold()
             continue
         if not line:
             continue
-        if section in {"experience", "work experience", "employment", "professional experience", "work history"}:
+        if section in {
+            "experience",
+            "work experience",
+            "employment",
+            "professional experience",
+            "work history",
+        }:
             found.extend(_org_from_line(start, line, EntityType.ORGANIZATION))
         elif section in {"education", "academic background"}:
             found.extend(_school_from_line(start, line))
@@ -141,14 +171,18 @@ def _org_from_line(start: int, line: str, entity: EntityType) -> list[Detection]
         name = match.group(1).strip(" ,;—-")
         if _plausible_org(name):
             rel = match.start(1)
-            found.append(Detection(entity, start + rel, start + rel + len(name), name, source="resume"))
+            found.append(
+                Detection(entity, start + rel, start + rel + len(name), name, source="resume")
+            )
             return found
     match = _COMPANY_LINE.match(line)
     if match and not _TITLE_WORDS.search(match.group(1)):
         name = match.group(1).strip()
         if _plausible_org(name):
             rel = match.start(1)
-            found.append(Detection(entity, start + rel, start + rel + len(name), name, source="resume"))
+            found.append(
+                Detection(entity, start + rel, start + rel + len(name), name, source="resume")
+            )
     return found
 
 
@@ -157,22 +191,26 @@ def _school_from_line(start: int, line: str) -> list[Detection]:
         return []
     # Take the school-ish phrase up to a comma or em-dash.
     match = re.search(
-        r"([A-Z][^,\n—|]{2,60}?(?:University|College|Institute|School|Academy|Polytechnic|Université)[^,\n—|]{0,20})",
+        r"((?:[A-Z][A-Za-z'’\-]+\s+)*"
+        r"(?:University|College|Institute|School|Academy|Polytechnic|Université)"
+        r"(?:\s+(?:of|de)\s+[A-Z][A-Za-z'’\-]+)?(?:\s+[A-Z][A-Za-z'’\-]+)*)",
         line,
     )
     if not match:
         return []
     name = match.group(1).strip()
     rel = match.start(1)
-    return [Detection(EntityType.ORGANIZATION, start + rel, start + rel + len(name), name, source="resume")]
+    return [
+        Detection(
+            EntityType.ORGANIZATION, start + rel, start + rel + len(name), name, source="resume"
+        )
+    ]
 
 
 def _plausible_org(name: str) -> bool:
     if len(name) < 2 or len(name) > 80:
         return False
-    if name.casefold() in _NOT_NAMES:
-        return False
-    return True
+    return name.casefold() not in _NOT_NAMES
 
 
 def person_aliases(full_name: str) -> list[str]:

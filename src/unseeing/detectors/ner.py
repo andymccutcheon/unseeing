@@ -38,8 +38,7 @@ class SpacyNERDetector:
             self.nlp = spacy.load(model)
         except OSError as exc:
             raise DetectorError(
-                f"spaCy model {model!r} is not installed. "
-                f"Run: python -m spacy download {model}"
+                f"spaCy model {model!r} is not installed. Run: python -m spacy download {model}"
             ) from exc
 
     def detect(self, text: str) -> list[Detection]:

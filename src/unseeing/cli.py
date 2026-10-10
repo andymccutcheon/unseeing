@@ -72,9 +72,15 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _add_shared(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--resume", action="store_true", help="Enable resume / HR header heuristics.")
-    parser.add_argument("--scrub-orgs", action="store_true", help="Also scrub employers and schools.")
-    parser.add_argument("--allow", action="append", default=[], help="Never-scrub phrase (repeatable).")
+    parser.add_argument(
+        "--resume", action="store_true", help="Enable resume / HR header heuristics."
+    )
+    parser.add_argument(
+        "--scrub-orgs", action="store_true", help="Also scrub employers and schools."
+    )
+    parser.add_argument(
+        "--allow", action="append", default=[], help="Never-scrub phrase (repeatable)."
+    )
 
 
 def _read(path: str | None) -> str:

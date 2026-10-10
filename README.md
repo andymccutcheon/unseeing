@@ -175,23 +175,23 @@ unseeing demo
 
 ## Benchmark (synthetic fixture set)
 
-Measured by `tests/test_benchmark.py` on the labeled fake resumes and
-background-check form in `tests/fixtures/resumes.json`. These numbers
-describe **this fixture set**, not the open web.
+Measured by `tests/test_benchmark.py` on the six labeled fake resumes and
+background-check form in `tests/fixtures/resumes.json` (37 unique entities).
+These numbers describe **this fixture set**, not the open web.
 
 | | Precision | Recall |
 | --- | ---: | ---: |
-| **Overall** | 0.97 | 1.00 |
-| EMAIL | 1.00 | 1.00 |
-| PHONE | 1.00 | 1.00 |
-| PERSON (resume mode) | 1.00 | 1.00 |
-| SSN / IBAN / CREDIT_CARD | 1.00 | 1.00 |
-| LINKEDIN / GITHUB | 1.00 | 1.00 |
-| STREET_ADDRESS | 0.90 | 1.00 |
+| **Overall** | 1.00 | 1.00 |
+| EMAIL / PHONE / PERSON (resume mode) | 1.00 | 1.00 |
+| SSN / NATIONAL_ID / IBAN / CREDIT_CARD | 1.00 | 1.00 |
+| LINKEDIN / GITHUB / URL / IP_ADDRESS | 1.00 | 1.00 |
+| STREET_ADDRESS / DATE_OF_BIRTH | 1.00 | 1.00 |
 
-Real documents score lower: names without NER, unconventional phones, and
-addresses that do not look like US/UK street lines will be missed. GitHub
-*repositories* are deliberately not treated as profiles.
+A perfect score here means the detectors match the labels we wrote for these
+synthetic documents. Real documents score lower: names without NER,
+unconventional phones, and addresses that do not look like US/UK street
+lines will be missed. GitHub *repositories* are deliberately not treated as
+profiles.
 
 ## Limitations
 

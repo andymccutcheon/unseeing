@@ -49,16 +49,18 @@ class _MessagesProxy:
         return StreamAdapter(result, self.scrubber.stream_restorer())
 
 
-def wrap_anthropic(client: Any, *, scrubber: Scrubber | None = None, **kwargs: Any) -> UnseeingAnthropic:
+def wrap_anthropic(
+    client: Any, *, scrubber: Scrubber | None = None, **kwargs: Any
+) -> UnseeingAnthropic:
     return UnseeingAnthropic(client, scrubber=scrubber, **kwargs)
 
 
 def _scrub_kwargs(scrubber: Scrubber, kwargs: dict[str, Any]) -> dict[str, Any]:
     out = dict(kwargs)
-    if "system" in out:
-        out["system"] = scrubber.scrub_any(out["system"])
     if "messages" in out:
         out["messages"] = scrubber.scrub_messages(out["messages"])
+    if "system" in out:
+        out["system"] = scrubber.scrub_any(out["system"])
     if "tools" in out:
         out["tools"] = scrubber.scrub_any(out["tools"])
     return out

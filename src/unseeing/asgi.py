@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
-from typing import Any, Callable
+from collections.abc import Callable, Sequence
+from typing import Any
 
 from unseeing.restore import StreamRestorer
 from unseeing.scrubber import Scrubber
@@ -50,9 +50,7 @@ class UnseeingMiddleware:
         body = await _read_body(receive)
         body = self._scrub_request(body)
         headers = [
-            (key, value)
-            if key != b"content-length"
-            else (key, str(len(body)).encode("ascii"))
+            (key, value) if key != b"content-length" else (key, str(len(body)).encode("ascii"))
             for key, value in scope.get("headers", [])
         ]
         new_scope = dict(scope)
@@ -138,7 +136,9 @@ class UnseeingMiddleware:
         try:
             data = json.loads(body.decode("utf-8"))
         except (UnicodeDecodeError, json.JSONDecodeError):
-            return self.scrubber.restore_text(body.decode("utf-8", errors="replace")).encode("utf-8")
+            return self.scrubber.restore_text(body.decode("utf-8", errors="replace")).encode(
+                "utf-8"
+            )
         return json.dumps(self.scrubber.restore_any(data), ensure_ascii=False).encode("utf-8")
 
 
@@ -249,4 +249,3 @@ async def _read_body(receive: Receive) -> bytes:
         if not message.get("more_body"):
             break
     return bytes(chunks)
-
