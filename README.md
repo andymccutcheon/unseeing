@@ -130,10 +130,25 @@ A fast built-in regex / validator layer (stdlib only):
 Optional extras:
 
 ```bash
-pip install 'unseeing[ner]'          # spaCy PERSON / ORG / LOCATION
+pip install 'unseeing[ner]'          # spaCy PERSON / ORG / LOCATION (~15MB model)
 python -m spacy download en_core_web_sm
+pip install 'unseeing[gliner]'       # local GLiNER PII, ONNX Runtime on CPU
 pip install 'unseeing[presidio]'     # Microsoft Presidio adapter
 ```
+
+`unseeing[gliner]` uses [`knowledgator/gliner-pii-small-v1.0`](https://huggingface.co/knowledgator/gliner-pii-small-v1.0)
+(Apache-2.0): a PII-focused small checkpoint with official ONNX graphs.
+Default file: `onnx/model_quint8.onnx` (~83MB). Inference is
+`onnxruntime` on CPU. The `gliner` library still lists **PyTorch** as a
+required Python dependency even for the ONNX path; we do not load the
+PyTorch weights. Override with `UNSEEING_GLINER_MODEL`,
+`UNSEEING_GLINER_ONNX_FILE`, and `UNSEEING_GLINER_THRESHOLD`.
+
+spaCy stays as `unseeing[ner]`. GLiNER scores better on names and cities
+in the held-out eval below, but it is the heavy extra (torch +
+onnxruntime + the ONNX graph). spaCy is the small name/place extra.
+Default `pip install unseeing` still has **zero** required dependencies
+and downloads no models.
 
 ```python
 from unseeing import CustomPattern, DenyItem, Scrubber
@@ -145,6 +160,7 @@ scrubber = Scrubber(
     deny=[DenyItem("Ava Chen", "PERSON")],
     custom_patterns=[CustomPattern("EMPLOYEE_ID", r"EMP-\d{5}")],
     use_ner=False,
+    use_gliner=False,
     use_presidio=False,
     use_surrogates=False,      # True → Faker-style stand-ins instead of tags
 )
@@ -175,18 +191,22 @@ unseeing demo
 
 ## Evaluation
 
-Held-out entity-level scores on a **public labeled dataset we did not tune
-on**. Run locally with `scripts/benchmark.py` (not CI; it downloads data).
+Held-out entity-level scores on a **public labeled dataset**. Regex and
+the GLiNER threshold were tuned only on a **disjoint dev sample** (seed
+`20261011`, 2,000 English rows, excluding the test uids). The test
+sample below was run **once** after that. Run locally with
+`scripts/benchmark.py` (not CI; it downloads data).
 
 | | |
 | --- | --- |
 | Dataset | [`ai4privacy/pii-masking-400k`](https://huggingface.co/datasets/ai4privacy/pii-masking-400k) |
 | Split / filter | `train`, `language == "en"` (68,275 English rows) |
-| Sample | 2,000 rows, seed `20261010` |
+| Test sample | 2,000 rows, seed `20261010` |
+| Dev sample | 2,000 rows, seed `20261011`, disjoint from test |
 | Revision | `414d0a3b5798a152588a0828f1c08a5787de10f4` |
 | Date | 2026-10-10 |
 | Matching | Entity-level, same mapped type, **span overlap** (not exact). 1-1 greedy, longer gold first |
-| Configs | regex-only (default install, `resume=False`); same + `unseeing[ner]` (`en_core_web_sm`) |
+| Configs | regex-only; regex + `unseeing[ner]`; regex + `unseeing[gliner]` |
 | Overall | Micro-average over types that have gold in this sample |
 
 Adjacent `GIVENNAME` + `SURNAME` gold spans are merged into one `PERSON`.
@@ -216,55 +236,78 @@ Unseeing does not claim, and this eval does not score: `USERNAME`,
 `TITLE`, `GENDER`, `SEX`, `PASSPORTNUM`.
 
 This sample's gold schema is the public 17-class set. It has **no**
-`URL` / `IPV4` / `IPV6` / `IBAN` labels. The regex layer still predicted
-202 URLs, 8 IPs, and 1 IBAN in these 2,000 rows; those counts are omitted
-from overall so unlabeled spans are not counted as errors.
+`URL` / `IPV4` / `IPV6` / `IBAN` labels. Predictions of those types are
+omitted from overall so unlabeled spans are not counted as errors.
 
 ### regex-only (default install)
 
 | Type | Precision | Recall | F1 | TP | FP | FN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **Overall** | 0.85 | 0.24 | 0.38 | 380 | 69 | 1190 |
-| CREDIT_CARD | 0.33 | 0.05 | 0.09 | 3 | 6 | 56 |
-| DATE_OF_BIRTH | 1.00 | 0.19 | 0.32 | 19 | 0 | 80 |
+| **Overall** | 0.85 | 0.31 | 0.46 | 493 | 90 | 1077 |
+| CREDIT_CARD | 0.50 | 0.10 | 0.17 | 6 | 6 | 53 |
+| DATE_OF_BIRTH | 0.97 | 0.36 | 0.53 | 36 | 1 | 63 |
 | EMAIL | 1.00 | 0.95 | 0.97 | 200 | 1 | 10 |
 | LOCATION | 0.00 | 0.00 | 0.00 | 0 | 0 | 236 |
-| NATIONAL_ID | 0.00 | 0.00 | 0.00 | 0 | 0 | 105 |
+| NATIONAL_ID | 0.59 | 0.23 | 0.33 | 24 | 17 | 81 |
 | PERSON | 0.00 | 0.00 | 0.00 | 0 | 0 | 530 |
-| PHONE | 0.79 | 0.66 | 0.72 | 108 | 29 | 55 |
-| SSN | 0.53 | 0.38 | 0.45 | 35 | 31 | 56 |
-| STREET_ADDRESS | 0.88 | 0.19 | 0.32 | 15 | 2 | 62 |
+| PHONE | 0.84 | 0.66 | 0.74 | 107 | 20 | 56 |
+| SSN | 0.56 | 0.57 | 0.57 | 52 | 41 | 39 |
+| STREET_ADDRESS | 0.94 | 0.88 | 0.91 | 68 | 4 | 9 |
 
-### regex + `unseeing[ner]`
+### regex + `unseeing[ner]` (spaCy `en_core_web_sm`)
 
 | Type | Precision | Recall | F1 | TP | FP | FN |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| **Overall** | 0.44 | 0.45 | 0.44 | 705 | 901 | 865 |
-| CREDIT_CARD | 0.33 | 0.05 | 0.09 | 3 | 6 | 56 |
-| DATE_OF_BIRTH | 1.00 | 0.19 | 0.32 | 19 | 0 | 80 |
+| **Overall** | 0.48 | 0.52 | 0.50 | 817 | 881 | 753 |
+| CREDIT_CARD | 0.50 | 0.10 | 0.17 | 6 | 6 | 53 |
+| DATE_OF_BIRTH | 0.97 | 0.36 | 0.53 | 36 | 1 | 63 |
 | EMAIL | 1.00 | 0.95 | 0.97 | 200 | 1 | 10 |
-| LOCATION | 0.20 | 0.42 | 0.27 | 100 | 393 | 136 |
-| NATIONAL_ID | 0.00 | 0.00 | 0.00 | 0 | 0 | 105 |
-| PERSON | 0.34 | 0.42 | 0.38 | 225 | 439 | 305 |
-| PHONE | 0.79 | 0.66 | 0.72 | 108 | 29 | 55 |
-| SSN | 0.53 | 0.38 | 0.45 | 35 | 31 | 56 |
-| STREET_ADDRESS | 0.88 | 0.19 | 0.32 | 15 | 2 | 62 |
+| LOCATION | 0.21 | 0.42 | 0.28 | 99 | 367 | 137 |
+| NATIONAL_ID | 0.59 | 0.23 | 0.33 | 24 | 17 | 81 |
+| PERSON | 0.35 | 0.42 | 0.38 | 225 | 424 | 305 |
+| PHONE | 0.84 | 0.66 | 0.74 | 107 | 20 | 56 |
+| SSN | 0.56 | 0.57 | 0.57 | 52 | 41 | 39 |
+| STREET_ADDRESS | 0.94 | 0.88 | 0.91 | 68 | 4 | 9 |
+
+### regex + `unseeing[gliner]` (PII-small QUINT8 ONNX)
+
+| Type | Precision | Recall | F1 | TP | FP | FN |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Overall** | 0.48 | 0.68 | 0.57 | 1075 | 1143 | 495 |
+| CREDIT_CARD | 0.18 | 0.27 | 0.22 | 16 | 72 | 43 |
+| DATE_OF_BIRTH | 0.77 | 0.49 | 0.60 | 49 | 15 | 50 |
+| EMAIL | 0.99 | 0.95 | 0.97 | 200 | 2 | 10 |
+| LOCATION | 0.62 | 0.53 | 0.57 | 125 | 75 | 111 |
+| NATIONAL_ID | 0.21 | 0.52 | 0.30 | 55 | 205 | 50 |
+| PERSON | 0.68 | 0.65 | 0.66 | 344 | 161 | 186 |
+| PHONE | 0.43 | 0.92 | 0.59 | 150 | 198 | 13 |
+| SSN | 0.18 | 0.70 | 0.28 | 64 | 296 | 27 |
+| STREET_ADDRESS | 0.38 | 0.94 | 0.54 | 72 | 119 | 5 |
+
+Warm CPU latency for the GLiNER config: **~240 ms per 1k characters**
+(80 docs / 12,549 chars).
+
+**Install notes.** Default `unseeing`: no third-party packages. `unseeing[ner]`:
+spaCy plus `en_core_web_sm` (~15MB). `unseeing[gliner]`: `gliner` +
+`onnxruntime` (~70MB) + the QUINT8 ONNX graph (~83MB). `gliner` still
+requires a PyTorch wheel to import (CPU wheel is typically a few hundred
+MB; this machine pulled a ~1.2GB CUDA wheel). Inference does not use
+those PyTorch weights.
 
 A cell of 1.00 is rounding or a small support count (see TP / FP / FN),
 not a claim that the detector is perfect.
 
-Public synthetic data differs from your documents. Names, street-only
-addresses, fail-Luhn card numbers, and IDs that are not SSN / NINO / SIN
-are often missed on purpose by the default layer. This reduces how much
-identifiable text you send. **It is not a compliance guarantee.**
-
-Detectors were not tuned against this sample. No detector bugs were
-changed for these numbers.
+Public synthetic data differs from your documents. Many gold "cards" fail
+Luhn, many gold "dates of birth" are just dates, and many gold IDs are
+random tokens. The default layer keeps Luhn and DOB-context on purpose.
+This reduces how much identifiable text you send. **It is not a
+compliance guarantee.**
 
 ```bash
-python3 -m pip install -e ".[ner]" datasets huggingface_hub 'numpy>=2'
+python3 -m pip install -e ".[ner,gliner]" datasets huggingface_hub 'numpy>=2'
 python3 -m spacy download en_core_web_sm
-python3 scripts/benchmark.py
+python3 scripts/benchmark.py --split=dev --gap-report
+python3 scripts/benchmark.py --latency
 ```
 
 ### Fixture regression (not an accuracy claim)
@@ -277,7 +320,8 @@ published accuracy number.
 ## Limitations
 
 - Regex + heuristics, not a privacy program. Expect false negatives on
-  names in prose unless you enable resume mode, NER, or a deny list.
+  names in prose unless you enable resume mode, `unseeing[ner]`,
+  `unseeing[gliner]`, or a deny list.
 - Street addresses and dates are best-effort. Employment dates are kept
   on purpose (job matching needs them); only DOB-context dates are
   scrubbed.

@@ -97,6 +97,7 @@ def _load_model(model_id: str, onnx_file: str) -> Any:
             runtime="onnxruntime",
             runtime_model_file=onnx_file,
             runtime_options={"providers": ["CPUExecutionProvider"]},
+            allow_patterns=["*.json", "onnx/*", "tokenizer*", "special_tokens*"],
         )
     except TypeError as exc:
         load_errors.append(f"runtime=: {exc}")
