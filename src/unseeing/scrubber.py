@@ -37,6 +37,8 @@ class Scrubber:
         scrub_urls: bool = True,
         use_ner: bool = False,
         ner_model: str = "en_core_web_sm",
+        use_gliner: bool = False,
+        gliner_model: str | None = None,
         use_presidio: bool = False,
         detectors: Sequence[Detector] | None = None,
     ) -> None:
@@ -61,6 +63,10 @@ class Scrubber:
                 from unseeing.detectors.ner import SpacyNERDetector
 
                 self.detectors.append(SpacyNERDetector(model=ner_model))
+            if use_gliner:
+                from unseeing.detectors.gliner import GLiNERDetector
+
+                self.detectors.append(GLiNERDetector(model=gliner_model))
             if use_presidio:
                 from unseeing.detectors.presidio import PresidioDetector
 

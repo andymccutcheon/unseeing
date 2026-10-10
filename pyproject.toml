@@ -43,6 +43,10 @@ dependencies = []
 ner = [
     "spacy>=3.7",
 ]
+gliner = [
+    "gliner>=0.2.16",
+    "onnxruntime>=1.17",
+]
 presidio = [
     "presidio-analyzer>=2.2",
 ]

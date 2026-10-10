@@ -7,10 +7,13 @@ Sample: fixed size + seed (see flags)
 
 This script is *not* run in CI. It downloads data and, for the NER config,
 needs ``pip install 'unseeing[ner]'`` plus ``python -m spacy download en_core_web_sm``.
+GLiNER needs ``pip install 'unseeing[gliner]'`` (ONNX Runtime; downloads the
+PII-small ONNX graph on first use). Tune only on ``--split=dev``.
 
-    python3 -m pip install -e ".[ner]" datasets huggingface_hub
+    python3 -m pip install -e ".[ner,gliner]" datasets huggingface_hub
     python3 -m spacy download en_core_web_sm
-    python3 scripts/benchmark.py
+    python3 scripts/benchmark.py --split=dev --gap-report --skip-ner --skip-gliner
+    python3 scripts/benchmark.py --latency
 """
 
 from __future__ import annotations
@@ -86,6 +89,7 @@ EXCLUDED_LABELS = frozenset(
 DATASET_ID = "ai4privacy/pii-masking-400k"
 DEFAULT_N = 2000
 DEFAULT_SEED = 20261010
+DEFAULT_DEV_SEED = 20261011
 # Pinned so `python3 scripts/benchmark.py` reproduces the README tables.
 DEFAULT_REVISION = "414d0a3b5798a152588a0828f1c08a5787de10f4"
 
@@ -257,9 +261,14 @@ def print_table(title: str, report: dict[str, Any]) -> None:
             print(f"| {name} | {int(row['fp'])} |")
 
 
-def load_sample(
-    *, n: int, seed: int, revision: str | None
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+def _row_uid(row: dict[str, Any]) -> str:
+    uid = row.get("uid")
+    if uid is None:
+        uid = row.get("id")
+    return str(uid) if uid is not None else ""
+
+
+def _hf_english(revision: str | None):
     try:
         from datasets import load_dataset
         from huggingface_hub import dataset_info
@@ -274,10 +283,31 @@ def load_sample(
     sha = getattr(info, "sha", None) or revision or "unknown"
     ds = load_dataset(DATASET_ID, split="train", revision=sha)
     english = ds.filter(lambda row: (row.get("language") or "") == "en")
+    return english, sha
+
+
+def load_sample(
+    *,
+    n: int,
+    seed: int,
+    revision: str | None,
+    exclude_seed: int | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    english, sha = _hf_english(revision)
     available = len(english)
-    take = min(n, available)
-    sampled = english.shuffle(seed=seed).select(range(take))
-    rows = [dict(row) for row in sampled]
+    blocked: set[str] = set()
+    if exclude_seed is not None:
+        held_out = english.shuffle(seed=exclude_seed).select(range(min(n, available)))
+        blocked = {_row_uid(row) for row in held_out if _row_uid(row)}
+    shuffled = english.shuffle(seed=seed)
+    rows: list[dict[str, Any]] = []
+    for row in shuffled:
+        item = dict(row)
+        if blocked and _row_uid(item) in blocked:
+            continue
+        rows.append(item)
+        if len(rows) >= n:
+            break
     seen, unknown = collect_labels(rows)
     meta = {
         "dataset": DATASET_ID,
@@ -287,6 +317,8 @@ def load_sample(
         "english_rows_available": available,
         "sample_size": len(rows),
         "seed": seed,
+        "exclude_seed": exclude_seed,
+        "disjoint_from_seed": exclude_seed,
         "sampled_on": date.today().isoformat(),
         "sampled_at_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "labels_seen_in_sample": sorted(seen),
@@ -295,12 +327,17 @@ def load_sample(
     return rows, meta
 
 
-def run_config(rows: list[dict[str, Any]], *, use_ner: bool) -> dict[str, Any]:
+def run_config(
+    rows: list[dict[str, Any]],
+    *,
+    use_ner: bool = False,
+    use_gliner: bool = False,
+) -> dict[str, Any]:
     from unseeing import Scrubber
 
-    # One scrubber for the run so spaCy loads once. detect() does not register
-    # vault entries, so documents do not leak aliases into later rows.
-    scrubber = Scrubber(resume=False, use_ner=use_ner)
+    # One scrubber for the run so spaCy / GLiNER load once. detect() does not
+    # register vault entries, so documents do not leak aliases into later rows.
+    scrubber = Scrubber(resume=False, use_ner=use_ner, use_gliner=use_gliner)
     golds: list[list[Span]] = []
     preds: list[list[Span]] = []
     for row in rows:
@@ -310,21 +347,98 @@ def run_config(rows: list[dict[str, Any]], *, use_ner: bool) -> dict[str, Any]:
     return score(golds, preds)
 
 
+def measure_gliner_latency(rows: list[dict[str, Any]], *, limit: int = 80) -> dict[str, float]:
+    import time
+
+    from unseeing import Scrubber
+
+    sample = rows[: min(limit, len(rows))]
+    scrubber = Scrubber(resume=False, use_gliner=True)
+    # Warm the ONNX session so download / compile is not in the timed window.
+    scrubber.detect(sample[0].get("source_text") or "Ada Lovelace")
+    chars = 0
+    started = time.perf_counter()
+    for row in sample:
+        text = row.get("source_text") or ""
+        chars += len(text)
+        scrubber.detect(text)
+    elapsed = time.perf_counter() - started
+    per_1k = (elapsed / chars) * 1000 if chars else 0.0
+    return {
+        "docs": float(len(sample)),
+        "chars": float(chars),
+        "seconds": elapsed,
+        "ms_per_1k_chars": per_1k * 1000,
+    }
+
+
+def print_gap_report(rows: list[dict[str, Any]], report: dict[str, Any]) -> None:
+    """DEV-only: format cues for missed gold, no test-set access."""
+    from unseeing import Scrubber
+
+    target = {
+        "CREDIT_CARD",
+        "DATE_OF_BIRTH",
+        "NATIONAL_ID",
+        "SSN",
+        "STREET_ADDRESS",
+    }
+    scrubber = Scrubber(resume=False)
+    print("\n### Dev gap report (regex-only; not the held-out test sample)\n")
+    buckets: dict[str, list[str]] = {name: [] for name in target}
+    for row in rows:
+        text = row.get("source_text") or ""
+        gold = gold_spans(row)
+        pred = pred_spans(text, scrubber.detect(text))
+        _pairs, _fps, fns = match_entities(gold, pred)
+        for span in fns:
+            if span.entity_type in target and len(buckets[span.entity_type]) < 12:
+                buckets[span.entity_type].append(span.value)
+    for name, examples in buckets.items():
+        stats = report.get("by_type", {}).get(name, {})
+        print(
+            f"{name}: tp={stats.get('tp', 0)} fp={stats.get('fp', 0)} "
+            f"fn={stats.get('fn', 0)}  examples={examples}"
+        )
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--n", type=int, default=DEFAULT_N)
     parser.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    parser.add_argument(
+        "--split",
+        choices=("test", "dev"),
+        default="test",
+        help="test = held-out seed 20261010; dev = disjoint seed 20261011",
+    )
+    parser.add_argument("--dev-seed", type=int, default=DEFAULT_DEV_SEED)
     parser.add_argument(
         "--revision",
         default=DEFAULT_REVISION,
         help=f"HF dataset git commit (default: {DEFAULT_REVISION})",
     )
     parser.add_argument("--skip-ner", action="store_true")
+    parser.add_argument("--skip-gliner", action="store_true")
+    parser.add_argument("--gap-report", action="store_true")
+    parser.add_argument("--latency", action="store_true")
     parser.add_argument("--json-out", default=None)
     args = parser.parse_args(argv)
 
-    rows, meta = load_sample(n=args.n, seed=args.seed, revision=args.revision)
-    print("Held-out evaluation (not used to tune detectors)")
+    if args.split == "dev":
+        seed = args.dev_seed
+        exclude_seed = DEFAULT_SEED
+        banner = "DEV sample (disjoint from held-out test; used for tuning only)"
+    else:
+        seed = args.seed
+        exclude_seed = None
+        banner = "Held-out TEST evaluation (not used to tune detectors)"
+        if args.gap_report:
+            raise SystemExit("--gap-report is allowed on --split=dev only")
+
+    rows, meta = load_sample(n=args.n, seed=seed, revision=args.revision, exclude_seed=exclude_seed)
+    meta["eval_split"] = args.split
+    print(banner)
     print(json.dumps(meta, indent=2))
     print("\nMatching rule: entity-level, same mapped type, character-span overlap.")
     print("A gold and a prediction match if they overlap and share a type;")
@@ -337,8 +451,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Unmapped labels in this sample (treated as excluded):")
         print("  " + ", ".join(meta["unmapped_labels_in_sample"]))
 
-    regex_report = run_config(rows, use_ner=False)
+    regex_report = run_config(rows, use_ner=False, use_gliner=False)
     print_table("regex-only (default install, no resume, no NER)", regex_report)
+    if args.gap_report:
+        print_gap_report(rows, regex_report)
 
     ner_report: dict[str, Any] | None = None
     if not args.skip_ner:
@@ -349,7 +465,33 @@ def main(argv: list[str] | None = None) -> int:
         else:
             print_table("regex + unseeing[ner] (spaCy en_core_web_sm)", ner_report)
 
-    payload = {"meta": meta, "regex_only": regex_report, "ner": ner_report}
+    gliner_report: dict[str, Any] | None = None
+    latency: dict[str, float] | None = None
+    if not args.skip_gliner:
+        try:
+            gliner_report = run_config(rows, use_gliner=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"\nGLiNER config skipped: {exc}", file=sys.stderr)
+        else:
+            print_table(
+                "regex + unseeing[gliner] (knowledgator/gliner-pii-small-v1.0 ONNX)",
+                gliner_report,
+            )
+            if args.latency:
+                try:
+                    latency = measure_gliner_latency(rows)
+                    print("\nGLiNER CPU latency (warm):")
+                    print(json.dumps(latency, indent=2))
+                except Exception as exc:  # noqa: BLE001
+                    print(f"\nGLiNER latency skipped: {exc}", file=sys.stderr)
+
+    payload = {
+        "meta": meta,
+        "regex_only": regex_report,
+        "ner": ner_report,
+        "gliner": gliner_report,
+        "gliner_latency": latency,
+    }
     if args.json_out:
         with open(args.json_out, "w", encoding="utf-8") as handle:
             json.dump(payload, handle, indent=2)

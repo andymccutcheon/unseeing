@@ -54,6 +54,38 @@ def test_custom_pattern() -> None:
     assert scrubber.restore(out) == "Employee EMP-10442 signed."
 
 
+def test_card_spaced_dotted_and_unionpay() -> None:
+    # Stripe Visa + a Luhn-valid UnionPay (62) number.
+    unionpay = "6212345678901232"
+    assert luhn_ok("4242424242424242")
+    assert luhn_ok(unionpay)
+    text = f"Pay 4242.4242.4242.4242 or {unionpay}."
+    types = {d.type_name for d in RegexLayer().detect(text)}
+    assert "CREDIT_CARD" in types
+
+
+def test_ssn_dotted_and_context() -> None:
+    text = "SSN 123.45.6789 and Social Security Number: 456789012"
+    values = [d.value for d in RegexLayer().detect(text) if d.type_name == "SSN"]
+    assert any("123.45.6789" in v for v in values)
+
+
+def test_dob_ordinal_iso_and_month_slash() -> None:
+    text = "DOB: 8th January 1999; birthdate 1965-01-12T00:00:00; Date of Birth: May/58"
+    values = [d.value for d in RegexLayer().detect(text) if d.type_name == "DATE_OF_BIRTH"]
+    assert any("8th January 1999" in v for v in values)
+    assert any("1965-01-12T00:00:00" in v for v in values)
+    assert any("May/58" in v for v in values)
+
+
+def test_named_street_and_id_card_context() -> None:
+    text = "Office at Hill Road. Student ID: ZA16863XF. 12th Street is nearby."
+    found = RegexLayer().detect(text)
+    assert any(d.type_name == "STREET_ADDRESS" and "Hill Road" in d.value for d in found)
+    assert any(d.type_name == "STREET_ADDRESS" and "12th Street" in d.value for d in found)
+    assert any(d.type_name == "NATIONAL_ID" and "ZA16863XF" in d.value for d in found)
+
+
 def test_allow_and_deny() -> None:
     text = "Ava Chen works at Acme Corp. Reach Ava Chen at home."
     scrubber = Scrubber(resume=True, allow=["Acme Corp"], deny=["Ava Chen"])

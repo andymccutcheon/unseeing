@@ -46,6 +46,7 @@ def _card_iin_ok(digits: str) -> bool:
     if length < 13 or length > 19 or len(set(digits)) == 1:
         return False
     prefix2 = int(digits[:2])
+    prefix3 = int(digits[:3])
     prefix4 = int(digits[:4])
     if digits[0] == "4" and length in {13, 16, 19}:
         return True
@@ -55,14 +56,26 @@ def _card_iin_ok(digits: str) -> bool:
         return True
     if prefix2 in {34, 37} and length == 15:
         return True
-    if digits.startswith(("6011", "65", "64")) and length == 16:
+    if digits.startswith(("6011", "65", "64")) and length in {16, 19}:
         return True
-    return 3528 <= prefix4 <= 3589 and length == 16
+    if 3528 <= prefix4 <= 3589 and length == 16:
+        return True
+    # UnionPay
+    if digits.startswith("62") and 16 <= length <= 19:
+        return True
+    # Mir
+    if 2200 <= prefix4 <= 2204 and length == 16:
+        return True
+    # Diners Club
+    if prefix2 in {36, 38} and length in {14, 16}:
+        return True
+    return 300 <= prefix3 <= 305 and length in {14, 16}
 
 
 def _ssn_parts_ok(area: str, group: str, serial: str) -> bool:
-    if area == "000" or area == "666" or area.startswith("9"):
+    if area == "000" or area == "666":
         return False
+    # 9xx is the ITIN range; still an identifier we claim as SSN-like.
     return group != "00" and serial != "0000"
 
 
@@ -99,16 +112,43 @@ _WWW = re.compile(r"\bwww\.[A-Za-z0-9.-]+\.[A-Za-z]{2,24}[^\s<>\"']*", re.I)
 _IPV4 = re.compile(r"\b(?:(?:25[0-5]|2[0-4]\d|1?\d{1,2})\.){3}(?:25[0-5]|2[0-4]\d|1?\d{1,2})\b")
 _IPV6_LOOSE = re.compile(r"(?:[0-9A-Fa-f]{1,4}:){1,7}[0-9A-Fa-f:]{0,20}")
 
-_CC_GROUPED = re.compile(r"\b(?:\d{4}[\s-]){3}\d{4}\b")
-_CC_AMEX = re.compile(r"\b\d{4}[\s-]\d{6}[\s-]\d{5}\b")
+_CC_GROUPED = re.compile(r"\b(?:\d{4}[\s.\-]){3}\d{4}\b")
+_CC_AMEX = re.compile(r"\b\d{4}[\s.\-]\d{6}[\s.\-]\d{5}\b")
+_CC_DINERS = re.compile(r"\b\d{4}[\s.\-]\d{6}[\s.\-]\d{4}\b")
 _CC_BARE = re.compile(r"\b\d{13,19}\b")
 
-_SSN = re.compile(r"\b(\d{3})[-\s](\d{2})[-\s](\d{4})\b")
+_SSN = re.compile(r"\b(\d{3})[.\-\s](\d{2})[.\-\s](\d{4})\b")
+_SSN_CONTEXT = re.compile(
+    r"""
+    (?:ssn|social\s+security(?:\s+number)?|social\s+(?:insurance\s+)?number)
+    \s*[:#]?\s*
+    (
+        \d{3}[.\-\s]\d{2}[.\-\s]\d{4}
+        | \d{3}[.\-\s]\d{3}[.\-\s]\d{3,4}
+        | \d{9,10}
+    )
+    """,
+    re.I | re.VERBOSE,
+)
 _NINO = re.compile(
     r"\b(?!BG|GB|NK|KN|TN|NT|ZZ)[A-CEGHJ-PR-TW-Z]{2}\s?\d{2}\s?\d{2}\s?\d{2}\s?[A-D]\b",
     re.I,
 )
-_SIN = re.compile(r"\b\d{3}[-\s]\d{3}[-\s]\d{3}\b")
+_SIN = re.compile(r"\b\d{3}[.\-\s]\d{3}[.\-\s]\d{3}\b")
+_NATIONAL_ID_CONTEXT = re.compile(
+    r"""
+    (?<![A-Za-z])
+    (?:
+        (?:national\s+)?id(?:entity)?(?:\s*card)?(?:\s*(?:number|no\.?)|:)
+        | national\s+id
+        | nino
+        | national\s+insurance(?:\s+number)?
+    )
+    \s*[:#]?\s*
+    ([A-Z0-9][A-Z0-9.\-]{5,16}[A-Z0-9])
+    """,
+    re.I | re.VERBOSE,
+)
 
 _IBAN = re.compile(r"\b[A-Z]{2}\d{2}[A-Z0-9]{11,30}\b")
 _IBAN_SPACED = re.compile(r"\b[A-Z]{2}\d{2}(?:\s+[A-Z0-9]{4}){2,7}\b")
@@ -119,7 +159,34 @@ _STREET = re.compile(
     (?:[A-Z][A-Za-z0-9.'’\-]*\s+){0,5}
     (?:Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Lane|Ln|Drive|Dr|
        Court|Ct|Way|Place|Pl|Circle|Cir|Terrace|Ter|Parkway|Pkwy|
-       Highway|Hwy|Square|Sq)\.?
+       Highway|Hwy|Square|Sq|Close|Crescent|Grove|Hill|Walk|Freeway)\.?
+    \b
+    """,
+    re.VERBOSE | re.I,
+)
+# Street name + a strong suffix, no house number ("Hill Road", "Kiefer Boulevard").
+# Ambiguous suffixes (Court, Drive, Way, Place) are omitted to avoid
+# "Supreme Court" / "the only Way".
+_STREET_NAMED = re.compile(
+    r"""
+    \b(?:[A-Z][A-Za-z0-9.'’\-]*\s+){1,4}
+    (?:Street|Avenue|Road|Boulevard|Lane|Parkway|Highway|Crescent|Freeway)\.?
+    \b
+    """,
+    re.VERBOSE,
+)
+_STREET_DRIVE = re.compile(
+    r"""
+    \b(?:[A-Z][A-Za-z0-9.'’\-]*\s+){2,4}
+    (?:Drive|Walk)\.?
+    \b
+    """,
+    re.VERBOSE,
+)
+_STREET_ORDINAL = re.compile(
+    r"""
+    \b\d{1,4}(?:st|nd|rd|th)\s+
+    (?:Street|Avenue|Road|Boulevard|Lane|Drive|Parkway|Highway)\.?
     \b
     """,
     re.VERBOSE | re.I,
@@ -127,20 +194,23 @@ _STREET = re.compile(
 _PO_BOX = re.compile(r"\bP\.?\s*O\.?\s*Box\s+\d+\b", re.I)
 _CITY_STATE_ZIP = re.compile(r"\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b")
 
-_DOB_DATE = r"""
+_MONTH = (
+    r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+    r"Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|"
+    r"Nov(?:ember)?|Dec(?:ember)?)"
+)
+_DOB_DATE = rf"""
     (?:
-        \d{4}-\d{2}-\d{2}
-        | \d{1,2}[/-]\d{1,2}[/-]\d{2,4}
-        | (?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|
-           Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|
-           Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2},?\s+\d{4}
-        | \d{1,2}\s+(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|
-           Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|
-           Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{4}
+        \d{{4}}-\d{{2}}-\d{{2}}(?:T\d{{2}}:\d{{2}}:\d{{2}})?
+        | \d{{1,2}}[/-]\d{{1,2}}[/-]\d{{2,4}}
+        | {_MONTH}\.?\s+\d{{1,2}}(?:st|nd|rd|th)?,?\s+\d{{4}}
+        | \d{{1,2}}(?:st|nd|rd|th)?\s+{_MONTH}\.?\s+\d{{4}}
+        | {_MONTH}/\d{{2}}(?:\d{{2}})?
     )
 """
 _DOB = re.compile(
-    rf"(?:date\s+of\s+birth|d\.?o\.?b\.?|born(?:\s+on)?|birthday|birth\s*date)\s*[:\-]?\s*({_DOB_DATE})",
+    rf"(?:date\s+of\s+birth|d\.?o\.?b\.?|born(?:\s+on)?|birthday|birth\s*date|birthdate)"
+    rf"\s*[:\-]?\s*({_DOB_DATE})",
     re.I | re.VERBOSE,
 )
 
@@ -304,7 +374,7 @@ class RegexLayer:
 
     def _cards(self, text: str) -> Iterable[Detection]:
         seen: set[tuple[int, int]] = set()
-        for pattern in (_CC_GROUPED, _CC_AMEX, _CC_BARE):
+        for pattern in (_CC_GROUPED, _CC_AMEX, _CC_DINERS, _CC_BARE):
             for match in pattern.finditer(text):
                 digits = _digits(match.group(0))
                 if not _card_iin_ok(digits) or not luhn_ok(digits):
@@ -316,20 +386,63 @@ class RegexLayer:
                 yield _span(EntityType.CREDIT_CARD, match.start(), match.end(), text)
 
     def _ssns(self, text: str) -> Iterable[Detection]:
+        seen: set[tuple[int, int]] = set()
         for match in _SSN.finditer(text):
             if not _ssn_parts_ok(match.group(1), match.group(2), match.group(3)):
                 continue
+            key = (match.start(), match.end())
+            seen.add(key)
             yield _span(EntityType.SSN, match.start(), match.end(), text)
+        for match in _SSN_CONTEXT.finditer(text):
+            raw = match.group(1)
+            digits = _digits(raw)
+            if len(digits) == 9:
+                if not _ssn_parts_ok(digits[:3], digits[3:5], digits[5:]):
+                    continue
+            elif len(digits) == 10:
+                pass
+            else:
+                continue
+            start = match.start(1)
+            end = match.start(1) + len(raw)
+            key = (start, end)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield Detection(EntityType.SSN, start, end, raw, source="regex")
 
     def _national_ids(self, text: str) -> Iterable[Detection]:
+        seen: set[tuple[int, int]] = set()
         for match in _NINO.finditer(text):
+            seen.add((match.start(), match.end()))
             yield _span(EntityType.NATIONAL_ID, match.start(), match.end(), text)
         for match in _SIN.finditer(text):
             digits = _digits(match.group(0))
             if len(digits) != 9 or not luhn_ok(digits):
                 continue
             # 3-2-4 SSNs are a different pattern; 3-3-3 plus Luhn is SIN-like.
+            seen.add((match.start(), match.end()))
             yield _span(EntityType.NATIONAL_ID, match.start(), match.end(), text)
+        for match in _NATIONAL_ID_CONTEXT.finditer(text):
+            raw = match.group(1).strip(" .,;:")
+            compact = re.sub(r"[\s.\-]", "", raw)
+            if not 7 <= len(compact) <= 18:
+                continue
+            if not re.fullmatch(r"[A-Z0-9]+", compact, re.I):
+                continue
+            if compact.isdigit() and len(compact) in {8, 9} and compact.startswith("19"):
+                # Likely a year-ish number, not an ID.
+                continue
+            start = match.start(1)
+            end = start + len(match.group(1))
+            # Trim trailing punctuation from the span.
+            while end > start and text[end - 1] in " .,;:":
+                end -= 1
+            key = (start, end)
+            if key in seen:
+                continue
+            seen.add(key)
+            yield Detection(EntityType.NATIONAL_ID, start, end, text[start:end], source="regex")
 
     def _ibans(self, text: str) -> Iterable[Detection]:
         for pattern in (_IBAN, _IBAN_SPACED):
@@ -345,7 +458,14 @@ class RegexLayer:
                     )
 
     def _addresses(self, text: str) -> Iterable[Detection]:
-        for pattern in (_STREET, _PO_BOX, _CITY_STATE_ZIP):
+        for pattern in (
+            _STREET,
+            _STREET_NAMED,
+            _STREET_DRIVE,
+            _STREET_ORDINAL,
+            _PO_BOX,
+            _CITY_STATE_ZIP,
+        ):
             for match in pattern.finditer(text):
                 yield _span(EntityType.STREET_ADDRESS, match.start(), match.end(), text)
 
