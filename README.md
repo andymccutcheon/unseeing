@@ -173,25 +173,106 @@ unseeing restore --vault session.vault < scrubbed.txt
 unseeing demo
 ```
 
-## Benchmark (synthetic fixture set)
+## Evaluation
 
-Measured by `tests/test_benchmark.py` on the six labeled fake resumes and
-background-check form in `tests/fixtures/resumes.json` (37 unique entities).
-These numbers describe **this fixture set**, not the open web.
+Held-out entity-level scores on a **public labeled dataset we did not tune
+on**. Run locally with `scripts/benchmark.py` (not CI; it downloads data).
 
-| | Precision | Recall |
-| --- | ---: | ---: |
-| **Overall** | 1.00 | 1.00 |
-| EMAIL / PHONE / PERSON (resume mode) | 1.00 | 1.00 |
-| SSN / NATIONAL_ID / IBAN / CREDIT_CARD | 1.00 | 1.00 |
-| LINKEDIN / GITHUB / URL / IP_ADDRESS | 1.00 | 1.00 |
-| STREET_ADDRESS / DATE_OF_BIRTH | 1.00 | 1.00 |
+| | |
+| --- | --- |
+| Dataset | [`ai4privacy/pii-masking-400k`](https://huggingface.co/datasets/ai4privacy/pii-masking-400k) |
+| Split / filter | `train`, `language == "en"` (68,275 English rows) |
+| Sample | 2,000 rows, seed `20261010` |
+| Revision | `414d0a3b5798a152588a0828f1c08a5787de10f4` |
+| Date | 2026-10-10 |
+| Matching | Entity-level, same mapped type, **span overlap** (not exact). 1-1 greedy, longer gold first |
+| Configs | regex-only (default install, `resume=False`); same + `unseeing[ner]` (`en_core_web_sm`) |
+| Overall | Micro-average over types that have gold in this sample |
 
-A perfect score here means the detectors match the labels we wrote for these
-synthetic documents. Real documents score lower: names without NER,
-unconventional phones, and addresses that do not look like US/UK street
-lines will be missed. GitHub *repositories* are deliberately not treated as
-profiles.
+Adjacent `GIVENNAME` + `SURNAME` gold spans are merged into one `PERSON`.
+`LINKEDIN` / `GITHUB` predictions score as `URL`.
+
+**Label mapping** (dataset → unseeing):
+
+| Dataset label | unseeing type |
+| --- | --- |
+| `EMAIL` | `EMAIL` |
+| `TELEPHONENUM` | `PHONE` |
+| `CREDITCARDNUMBER` | `CREDIT_CARD` |
+| `SOCIALNUM` | `SSN` |
+| `IDCARDNUM` | `NATIONAL_ID` |
+| `DATEOFBIRTH` | `DATE_OF_BIRTH` |
+| `STREET` | `STREET_ADDRESS` |
+| `GIVENNAME` / `SURNAME` | `PERSON` (merged when adjacent) |
+| `CITY` | `LOCATION` |
+| `IPV4` / `IPV6` | `IP_ADDRESS` |
+| `URL` | `URL` |
+| `IBAN` | `IBAN` |
+
+Unseeing does not claim, and this eval does not score: `USERNAME`,
+`PASSWORD`, `ACCOUNTNUM`, `TAXNUM`, `DRIVERLICENSENUM`, `BUILDINGNUM`,
+`ZIPCODE`, `MAC`, `USERAGENT`, crypto addresses, `VEHICLEVIN` /
+`VEHICLEVRM`, `PIN`, `JOBTITLE`, `HEIGHT`, `EYECOLOR`, `TIME`, `AGE`,
+`TITLE`, `GENDER`, `SEX`, `PASSPORTNUM`.
+
+This sample's gold schema is the public 17-class set. It has **no**
+`URL` / `IPV4` / `IPV6` / `IBAN` labels. The regex layer still predicted
+202 URLs, 8 IPs, and 1 IBAN in these 2,000 rows; those counts are omitted
+from overall so unlabeled spans are not counted as errors.
+
+### regex-only (default install)
+
+| Type | Precision | Recall | F1 | TP | FP | FN |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Overall** | 0.85 | 0.24 | 0.38 | 380 | 69 | 1190 |
+| CREDIT_CARD | 0.33 | 0.05 | 0.09 | 3 | 6 | 56 |
+| DATE_OF_BIRTH | 1.00 | 0.19 | 0.32 | 19 | 0 | 80 |
+| EMAIL | 1.00 | 0.95 | 0.97 | 200 | 1 | 10 |
+| LOCATION | 0.00 | 0.00 | 0.00 | 0 | 0 | 236 |
+| NATIONAL_ID | 0.00 | 0.00 | 0.00 | 0 | 0 | 105 |
+| PERSON | 0.00 | 0.00 | 0.00 | 0 | 0 | 530 |
+| PHONE | 0.79 | 0.66 | 0.72 | 108 | 29 | 55 |
+| SSN | 0.53 | 0.38 | 0.45 | 35 | 31 | 56 |
+| STREET_ADDRESS | 0.88 | 0.19 | 0.32 | 15 | 2 | 62 |
+
+### regex + `unseeing[ner]`
+
+| Type | Precision | Recall | F1 | TP | FP | FN |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| **Overall** | 0.44 | 0.45 | 0.44 | 705 | 901 | 865 |
+| CREDIT_CARD | 0.33 | 0.05 | 0.09 | 3 | 6 | 56 |
+| DATE_OF_BIRTH | 1.00 | 0.19 | 0.32 | 19 | 0 | 80 |
+| EMAIL | 1.00 | 0.95 | 0.97 | 200 | 1 | 10 |
+| LOCATION | 0.20 | 0.42 | 0.27 | 100 | 393 | 136 |
+| NATIONAL_ID | 0.00 | 0.00 | 0.00 | 0 | 0 | 105 |
+| PERSON | 0.34 | 0.42 | 0.38 | 225 | 439 | 305 |
+| PHONE | 0.79 | 0.66 | 0.72 | 108 | 29 | 55 |
+| SSN | 0.53 | 0.38 | 0.45 | 35 | 31 | 56 |
+| STREET_ADDRESS | 0.88 | 0.19 | 0.32 | 15 | 2 | 62 |
+
+A cell of 1.00 is rounding or a small support count (see TP / FP / FN),
+not a claim that the detector is perfect.
+
+Public synthetic data differs from your documents. Names, street-only
+addresses, fail-Luhn card numbers, and IDs that are not SSN / NINO / SIN
+are often missed on purpose by the default layer. This reduces how much
+identifiable text you send. **It is not a compliance guarantee.**
+
+Detectors were not tuned against this sample. No detector bugs were
+changed for these numbers.
+
+```bash
+python3 -m pip install -e ".[ner]" datasets huggingface_hub 'numpy>=2'
+python3 -m spacy download en_core_web_sm
+python3 scripts/benchmark.py
+```
+
+### Fixture regression (not an accuracy claim)
+
+The six fake resumes in `tests/fixtures/resumes.json` are a **regression
+test** (`tests/test_benchmark.py`). They check that labeled entities in
+those documents still get found after a detector change. They are not a
+published accuracy number.
 
 ## Limitations
 
@@ -211,8 +292,8 @@ profiles.
 
 ```bash
 python -m pip install -e ".[dev]"
-ruff check src tests examples
-ruff format src tests examples
+ruff check src tests examples scripts
+ruff format src tests examples scripts
 pytest
 python -m build && twine check --strict dist/*
 ```

@@ -18,3 +18,6 @@
   tool-call arguments. ASGI middleware and a `ScrubberProtocol` for freewhirr.
 - CLI: `unseeing scan`, `unseeing scrub`, `unseeing restore`, `unseeing demo`.
 - Audit reports count entity types and never log original values.
+- Held-out evaluation on a public English sample of
+  `ai4privacy/pii-masking-400k` (see README). The six-resume fixture is a
+  regression test only and is not published as an accuracy claim.

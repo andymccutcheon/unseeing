@@ -24,13 +24,25 @@ fixtures, or CI. Fixtures use reserved/example values only (example.com,
 Run the same checks CI runs:
 
 ```bash
-ruff check src tests examples
-ruff format src tests examples
+ruff check src tests examples scripts
+ruff format src tests examples scripts
 pytest
 ```
 
 CI is GitHub Actions (`.github/workflows/ci.yml`) on Python 3.10 and 3.12:
 lint, format, pytest, then `python -m build` + `twine check --strict`.
+
+The held-out eval (`scripts/benchmark.py`) downloads a public Hugging Face
+dataset and is **not** part of CI. Reproduce it locally:
+
+```bash
+python3 -m pip install -e ".[ner]" datasets huggingface_hub
+python3 -m spacy download en_core_web_sm
+python3 scripts/benchmark.py
+```
+
+Do not tune detectors against that sample. The six resumes in
+`tests/fixtures/resumes.json` are a regression fixture only.
 
 ## Design notes
 

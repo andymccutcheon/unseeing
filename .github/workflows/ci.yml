@@ -23,9 +23,9 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
       - name: Ruff lint
-        run: ruff check src tests examples
+        run: ruff check src tests examples scripts
       - name: Ruff format
-        run: ruff format --check src tests examples
+        run: ruff format --check src tests examples scripts
       - name: Tests
         run: pytest -q
 
