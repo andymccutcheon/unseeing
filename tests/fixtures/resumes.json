@@ -1,0 +1,83 @@
+{
+  "documents": [
+    {
+      "id": "ava-chen",
+      "mode": "resume",
+      "text": "Ava Chen\nSenior Software Engineer\n123 Maple Street, Springfield, IL 62704\nava.chen@example.com | +1-555-010-0142\nlinkedin.com/in/avachen | https://github.com/avachen\nDOB: April 12, 1992\n\nEXPERIENCE\nStaff Engineer at Globex Robotics — 2021–2025\n- Shipped matching APIs. Email ava.chen@example.com for references.\n\nEDUCATION\nUniversity of Springfield, B.S. Computer Science\n",
+      "entities": [
+        {"type": "PERSON", "value": "Ava Chen"},
+        {"type": "STREET_ADDRESS", "value": "123 Maple Street"},
+        {"type": "STREET_ADDRESS", "value": "Springfield, IL 62704"},
+        {"type": "EMAIL", "value": "ava.chen@example.com"},
+        {"type": "PHONE", "value": "+1-555-010-0142"},
+        {"type": "LINKEDIN", "value": "linkedin.com/in/avachen"},
+        {"type": "GITHUB", "value": "https://github.com/avachen"},
+        {"type": "DATE_OF_BIRTH", "value": "April 12, 1992"}
+      ]
+    },
+    {
+      "id": "jordan-blake",
+      "mode": "resume",
+      "text": "Name: Jordan Blake\nProduct Designer\nP.O. Box 1844\nMadison, WI 53703\njordan.blake@example.org\n(608) 555-0199\nhttps://www.linkedin.com/in/jordan-blake\nBorn on 1988-07-04\n\nSUMMARY\nDesigner who shipped mobile apps at several studios.\n",
+      "entities": [
+        {"type": "PERSON", "value": "Jordan Blake"},
+        {"type": "STREET_ADDRESS", "value": "P.O. Box 1844"},
+        {"type": "STREET_ADDRESS", "value": "Madison, WI 53703"},
+        {"type": "EMAIL", "value": "jordan.blake@example.org"},
+        {"type": "PHONE", "value": "(608) 555-0199"},
+        {"type": "LINKEDIN", "value": "https://www.linkedin.com/in/jordan-blake"},
+        {"type": "DATE_OF_BIRTH", "value": "1988-07-04"}
+      ]
+    },
+    {
+      "id": "uk-finance",
+      "mode": "resume",
+      "text": "Priya Nair\nPayments Analyst\n14 Baker Street, London\npriya.nair@example.co.uk\n+44 20 7946 0958\nNational Insurance: AB123456C\nIBAN GB82WEST12345698765432\nDate of birth: 15 March 1991\n",
+      "entities": [
+        {"type": "PERSON", "value": "Priya Nair"},
+        {"type": "STREET_ADDRESS", "value": "14 Baker Street"},
+        {"type": "EMAIL", "value": "priya.nair@example.co.uk"},
+        {"type": "PHONE", "value": "+44 20 7946 0958"},
+        {"type": "NATIONAL_ID", "value": "AB123456C"},
+        {"type": "IBAN", "value": "GB82WEST12345698765432"},
+        {"type": "DATE_OF_BIRTH", "value": "15 March 1991"}
+      ]
+    },
+    {
+      "id": "canada-ops",
+      "mode": "resume",
+      "text": "Samir Patel\nOperations Lead\n88 King Street, Toronto\nsamir.patel@example.net\n+1 416-555-0136\nSIN 123-456-782\nLinkedIn: linkedin.com/in/samirpatel\n",
+      "entities": [
+        {"type": "PERSON", "value": "Samir Patel"},
+        {"type": "STREET_ADDRESS", "value": "88 King Street"},
+        {"type": "EMAIL", "value": "samir.patel@example.net"},
+        {"type": "PHONE", "value": "+1 416-555-0136"},
+        {"type": "NATIONAL_ID", "value": "123-456-782"},
+        {"type": "LINKEDIN", "value": "linkedin.com/in/samirpatel"}
+      ]
+    },
+    {
+      "id": "background-form",
+      "mode": "default",
+      "text": "Background check for employee #441.\nSSN: 123-45-6789\nCard on file: 4242 4242 4242 4242\nHome IP: 203.0.113.44\nIPv6 lab: 2001:db8:85a3::8a2e:370:7334\nPortfolio: https://example.com/u/demo\nDo not call 555-123-4567 after hours.\n",
+      "entities": [
+        {"type": "SSN", "value": "123-45-6789"},
+        {"type": "CREDIT_CARD", "value": "4242 4242 4242 4242"},
+        {"type": "IP_ADDRESS", "value": "203.0.113.44"},
+        {"type": "IP_ADDRESS", "value": "2001:db8:85a3::8a2e:370:7334"},
+        {"type": "URL", "value": "https://example.com/u/demo"},
+        {"type": "PHONE", "value": "555-123-4567"}
+      ]
+    },
+    {
+      "id": "multi-turn-contact",
+      "mode": "resume",
+      "text": "Riley Quinn\nriley.quinn@example.com\nhttps://github.com/rileyquinn\nPlease forward offers to Riley at the email above.\n",
+      "entities": [
+        {"type": "PERSON", "value": "Riley Quinn"},
+        {"type": "EMAIL", "value": "riley.quinn@example.com"},
+        {"type": "GITHUB", "value": "https://github.com/rileyquinn"}
+      ]
+    }
+  ]
+}

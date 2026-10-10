@@ -1,0 +1,96 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "unseeing"
+dynamic = ["version"]
+description = "Let the model work on the text without ever seeing the people in it: reversible PII scrubbing for LLM calls."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Andy McCutcheon" }]
+keywords = [
+    "pii",
+    "privacy",
+    "llm",
+    "redaction",
+    "anonymization",
+    "openai",
+    "anthropic",
+    "resume",
+    "hr",
+    "presidio",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.optional-dependencies]
+ner = [
+    "spacy>=3.7",
+]
+presidio = [
+    "presidio-analyzer>=2.2",
+]
+openai = [
+    "openai>=1.0",
+]
+anthropic = [
+    "anthropic>=0.30",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "hypothesis>=6.100",
+    "ruff>=0.6",
+    "build>=1.2",
+    "twine>=5.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/andymccutcheon/unseeing"
+Repository = "https://github.com/andymccutcheon/unseeing"
+Issues = "https://github.com/andymccutcheon/unseeing/issues"
+Changelog = "https://github.com/andymccutcheon/unseeing/blob/main/CHANGELOG.md"
+
+[project.scripts]
+unseeing = "unseeing.cli:main"
+
+[tool.setuptools.dynamic]
+version = { attr = "unseeing._version.__version__" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+unseeing = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src", "tests", "examples"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["unseeing"]
